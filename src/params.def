@@ -1,0 +1,48 @@
+// params.def: the tunable parameters of the engine, ONE line each:  X(NAME, default, min, max)
+//   default:  value of a normal build. -DNAME=value overrides it (make EXTRA="-DNAME=value", SPSA results). the tune build (-DTUNE_SEARCH) starts from it
+//   min, max: range of the UCI option in the tune build (the tuner's guard rails are in tools/spsa/spsa_params*.txt)
+// the parameters are used in the code as plain C expressions (never in #if): a constant in a normal build, a variable in the tune build.
+// after changing this file run  python3 tools/gen_params.py  (regenerates params_gen.h; the compiler says so if you forget)
+// to add a parameter: one line here, regenerate, add a line to tools/spsa/spsa_params*.txt if SPSA should tune it.
+// units: *_Q of the LMR family = 1/1024 ply, NMP_R_*_Q = 1/256 ply, LMP_*_Q = 1/16, *_X100 = hundredths, *_X1000 = thousandths, HIST_BONUS_MUL = 1/16
+// time limits (uci.c, allocate_time): soft limit <= TIME_SOFT_CAP of the available time, hard limit = min(TIME_HARD_MULT * base, TIME_HARD_CAP * available)
+
+// pruning, reductions, history (search.c)
+X(RFP_MARGIN, 95, 40, 180)             // per remaining depth
+X(FUT_BASE, 25, -50, 200)
+X(FUT_PER_DEPTH, 66, 30, 220)
+X(LMP_BASE_Q, 65, 16, 128)             // late move pruning limit = (LMP_BASE_Q + depth * depth * LMP_QUAD_Q) / 16
+X(LMP_QUAD_Q, 17, 6, 40)
+X(DELTA_MARGIN, 241, 80, 500)          // safety margin for delta pruning in quiescence search
+X(NMP_R_BASE_Q, 514, 384, 1280)        // null move reduction = (NMP_R_BASE_Q + depth * NMP_R_SLOPE_Q) / 256 + eval term
+X(NMP_R_SLOPE_Q, 93, 30, 160)
+X(NMP_EVAL_DIV, 193, 80, 600)          // null move reduces one more ply per this many centipawns eval is above beta, at most 3 (0 = off)
+X(LMR_BASE_X100, 72, 20, 130)          // late move reduction table = LMR_BASE_X100 / 100 + ln(depth) * ln(move index) / (LMR_DIV_X100 / 100)
+X(LMR_DIV_X100, 203, 130, 350)
+X(PV_LMR_Q, 1120, 0, 2048)             // less reduction in pv nodes
+X(IMP_LMR_Q, 981, 0, 2048)             // more reduction when the static eval is not improving (SPRT: +10.8 +/- 6.7 for a fixed 1 ply)
+X(CUTNODE_LMR_Q, 1137, 0, 2048)        // more reduction for quiet moves in expected cut nodes
+X(LMR_TTCAPTURE_Q, 909, 0, 2048)       // more reduction for quiet moves when the table move is a capture or promotion
+X(HIST_LMR_DIV, 1857, 256, 8192)       // history based late move reductions: reduction -= history / this (0 = off)
+X(HIST_BONUS_MUL, 37, 4, 96)           // history bonus = depth * depth * HIST_BONUS_MUL / 16, at most HIST_BONUS_CAP
+X(HIST_MAX, 15191, 4096, 30000)        // history values stay below this (gravity)
+
+// time management (search.c, uci.c)
+X(TM_STAB_BASE_X100, 221, 100, 300)    // stability scale = BASE - STEP * (iterations in a row with the same best move), at least MIN (all in hundredths)
+X(TM_STAB_STEP_X100, 5, 0, 40)
+X(TM_STAB_MIN_X100, 90, 30, 150)
+X(TM_CHANGE_X100, 127, 100, 250)       // soft limit factor inside an iteration after a new best move was found at the root
+X(TM_SCORE_DROP_X1000, 6, 0, 30)       // scale + this / 1000 per internal unit the score dropped
+X(TM_SCORE_RISE_X1000, 2, 0, 15)       // scale - this / 1000 per internal unit the score rose
+X(TM_NODES_SLOPE_X100, 113, 0, 250)    // nodes scale = 1 + (0.5 - best move share) * SLOPE / 100
+X(TM_MIN_X100, 57, 20, 100)            // the product of all scales is kept between MIN and MAX (hundredths)
+X(TM_MAX_X100, 254, 100, 400)
+X(TM_GATE_X100, 56, 30, 90)            // no new iteration is started after this share of the soft time (was a fixed 0.55)
+X(TIME_SOFT_CAP_X100, 28, 10, 60)
+X(TIME_HARD_MULT_X100, 397, 150, 600)
+X(TIME_HARD_CAP_X100, 65, 30, 80)
+
+// correction history (search.c)
+X(CH_PAWN_W, 59, 0, 128)               // weight of the pawn structure table in 1/64 (64 = the full average of the entry)
+X(CH_DIFF_MAX, 48, 4, 90)              // one search result teaches at most this much (eval units, pawn = 90); an entry can not exceed it either
+X(CH_RATE_MAX, 17, 2, 48)              // new information gets the weight min(depth + 1, CH_RATE_MAX) / 256

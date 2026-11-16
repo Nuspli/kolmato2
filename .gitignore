@@ -1,0 +1,14 @@
+kolmato2
+kolmato2_*
+pgo_data/
+tuner
+*.dat
+openings.epd
+games.pgn
+positions*.csv
+texel_*.log
+tuned_params.txt
+eval_before_texel.c
+*.orig
+__pycache__/
+spsa*/
