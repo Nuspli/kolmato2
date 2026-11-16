@@ -49,20 +49,20 @@ extern int eval_backward_pawn;          // penalty: can not be supported and its
 extern int eval_protected_passer;       // passed pawn defended by a pawn
 extern int eval_passer_king;            // endgame: per (rank of the passer * (distance of the enemy king - distance of the own king) to its stop square)
 extern int eval_king_shield;            // midgame: per own pawn in the two ranks in front of the king (three files)
-extern int eval_king_open_file;          // midgame penalty: per file next to the king (and its own) without an own pawn
-extern int eval_king_attack_knight;      // midgame penalty: per square of the king zone that an enemy knight attacks (only if the enemy has a queen)
+extern int eval_king_open_file;         // midgame penalty: per file next to the king (and its own) without an own pawn
+extern int eval_king_attack_knight;     // midgame penalty: per square of the king zone that an enemy knight attacks (only if the enemy has a queen)
 extern int eval_king_attack_bishop;
 extern int eval_king_attack_rook;
 extern int eval_king_attack_queen;
-extern int eval_pawn_attacks_minor;      // penalty: own knight or bishop attacked by an enemy pawn
-extern int eval_pawn_attacks_major;      // penalty: own rook or queen attacked by an enemy pawn
+extern int eval_pawn_attacks_minor;     // penalty: own knight or bishop attacked by an enemy pawn
+extern int eval_pawn_attacks_major;     // penalty: own rook or queen attacked by an enemy pawn
 extern int eval_knight_outpost;         // knight on the 4th to 6th rank, defended by a pawn and not attackable by enemy pawns
 extern int eval_rook_seventh;           // rook on the 7th rank with the enemy king on the 8th or enemy pawns on the 7th
 extern int eval_tempo; // bonus for the side to move (not part of the tuner, it is not a white/black term)
 
 // checkmating a lone king (not tuned by the texel tuner: such positions are too rare in game data, the values are set by hand)
-extern int eval_mop_up_edge;             // per step that the lone king is pushed away from the center
-extern int eval_mop_up_corner;           // bishop + knight against a lone king: per step closer to a corner of the bishop's color
+extern int eval_mop_up_edge;            // per step that the lone king is pushed away from the center
+extern int eval_mop_up_corner;          // bishop + knight against a lone king: per step closer to a corner of the bishop's color
 
 // the terms of the evaluation that are counted (how often each one occurs for white and for black)
 enum {
