@@ -61,7 +61,7 @@ The opening book is optional and off by default. It is included as `book/18moves
 custom format (`src/book.c`, `src/parser.c`) with positions from games of the [Lichess Elite Database](https://database.nikonoel.fr/), each with
 the moves that were played in it and how often. To use it:
 
-    make book                         # unpacks book/18moves.7z to ./bookMax.dat (needs 7z, 7zz or 7za; or unpack it by hand)
+    make book                           # unpacks book/18moves.7z to ./bookMax.dat (needs 7z, 7zz or 7za; or unpack it by hand)
 
 and set `OwnBook` to true in the GUI (the `BookFile` option can point to the file if it is not in the working directory of the engine). Without a book
 the engine searches from move 1. `parser.c` shows how the book was built; the games have to be converted to FEN lines first.
