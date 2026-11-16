@@ -1,12 +1,14 @@
-# Texel tuning for kolmato2
+# Texel tuning of the evaluation
 
 This directory contains a tuner for the weights of kolmato2's evaluation: the material values, the piece square tables and
-the other terms (mobility, passed pawns, rook files, ...). Nothing in here is taken from another engine: it is a method,
-and the evaluation it tunes is yours.
+the other terms (mobility, passed pawns, rook files, ...). The method is the Texel tuning method, which Peter Österlund described in 2014
+for his engine Texel; the optimizer used here (Adam) is a later addition to it (section 3).
 
-    datagen.py   plays self-play games and writes positions with the result of the game they came from
-    tuner.c      reads those positions and finds weights that predict the results better
-    README.md    this file
+    datagen.py    plays self-play games and writes positions with the result of the game they came from
+    tuner.c       reads those positions and finds weights that predict the results better
+    apply.py      copies the tuned values from the tuner's output into src/eval.c
+    run_texel.sh  does all of it in one go: build the tuner, self test, tune, apply
+    README.md     this file
 
 ## 1. The idea in one paragraph
 
@@ -21,7 +23,7 @@ described it in 2014).
 
     1. datagen.py    self-play games  ->  positions.csv   (fen,result)
     2. tuner         positions.csv    ->  features  ->  error  ->  optimizer  ->  tuned_params.txt
-    3. you           paste the tuned values into eval.c, build, and test with matches (the error is only a proxy!)
+    3. apply.py      tuned_params.txt ->  src/eval.c, then build and test with matches (the error is only a proxy!)
 
 ### The error function
 
@@ -98,9 +100,8 @@ average of each weight's gradient (`m`) and of its square (`v`), and moves each 
 effect is that every weight moves at roughly the same speed (`lr`, in centipawns per iteration) in the direction its own
 gradient points, whatever the size of the gradient. `lr` decays slowly (`--decay`) so that the weights settle.
 
-Adam itself dates from about the same time as Texel tuning (2014); using it for the Texel error became common in the years
-after, and it is what many engines with their own tuner do today. The tuning costs about as much as evaluating the
-whole data set a few hundred times.
+Adam was published in 2014, around the same time as the Texel method; applying it to the Texel error is a common choice in engine
+tuners today. The tuning costs about as much as evaluating the whole data set a few hundred times.
 
 ## 4. Overfitting, and what protects against it
 
@@ -134,9 +135,11 @@ everything the linear model approximates.
     ./tuner positions.csv --selftest
     ./tuner positions.csv --method adam
 
-    # tuned_params.txt now contains C code for the new values; paste it into eval.c
+    # tuned_params.txt now contains C code for the new values; copy them into src/eval.c
+    # (the old file is kept as eval.c.orig)
+    python3 tools/texel/apply.py src/eval.c tuned_params.txt
 
-Data amounts: with 6 workers and depth 7 expect a few thousand positions per minute. 200k positions are a reasonable first
+Data amounts: with 6 workers and depth 7 the number of positions is roughly a few thousand per minute (it depends on the machine). 200k positions are a reasonable first
 data set, 1M a good one. Positions from the same game are correlated, so more *games* is better than more positions per game.
 
 Useful options: `--groups m,s` (only material and scalar terms, `p` adds the tables), `--k` (fix the sigmoid constant),
@@ -146,31 +149,31 @@ Useful options: `--groups m,s` (only material and scalar terms, `p` adds the tab
 
 A lower error does not automatically mean a stronger engine. The error measures how well the *static* evaluation
 predicts results; what matters is the strength of the *search* using it. Always confirm with matches between the old and
-the new engine (`tools/match.py`), with enough games to see the difference (a few hundred, more for small
+the new engine (`tools/sprt.sh`), with enough games to see the difference (a few hundred, more for small
 differences). Two things often go wrong: tuning on data from a much weaker or stronger engine than the one you will play,
 and tuning positions that are not quiet.
 
 ## 6. Adding a new evaluation term
 
-1. Make its weight a global variable (see the `eval...` variables in `eval.h` / `eval.c`).
+1. Make its weight a global variable (see the `eval...` variables in `src/eval.h` / `src/eval.c`).
 2. Count how often it occurs for each side inside `evaluate()` and add a `TRACE(F_NAME, white_count, black_count)` line
-   (add `F_NAME` to the enum in `eval.h`).
+   (add `F_NAME` to the enum in `src/eval.h`).
 3. Add one line to the `terms[]` table in `tuner.c` (the sign is -1 for a penalty that is subtracted).
 
 Run `--selftest`: if the model does not reproduce the engine (large constants), the counts in the trace are wrong.
 
-## 7. Is there anything better than Texel tuning?
+## 7. Related methods
 
-Short answer: the *loss* is still the standard one for hand-written evaluations, and the biggest improvements since 2014
-are in how it is optimized and in what the labels are. As far as I know:
+The Texel loss is still a standard choice for hand-written evaluations. Most of what has been added since 2014 concerns how it is
+optimized and what the labels are:
 
 * **Gradient-based optimizers (Adam)** instead of local search, as used here. Same objective, much faster, and it makes it
-  practical to tune every table entry. This is the main practical advance.
+  practical to tune every table entry.
 * **Better labels.** Game results are noisy: a won game may contain positions that were equal. A common refinement is to mix
   the result with the score of a deeper search for the same position:
   `label = lambda * result + (1 - lambda) * sigmoid(k * search_score)`. Lambda between 0 and 1 trades noise against
-  the bias of the engine that produced the scores. (Using another engine's scores as labels makes your evaluation copy
-  that engine, which is the opposite of what you want; using your own engine's deeper search keeps it your own.)
+  the bias of the engine that produced the scores. Scores from the engine's own deeper search keep the data self-contained;
+  scores from another engine would make the evaluation imitate that engine.
 * **Tuning on search results instead of the static evaluation** ("qsearch-based" Texel): evaluate each position with a
   quiescence search instead of the static evaluation, which makes noisy, non-quiet positions usable. Slower and more
   complicated; the quiet-position filter gets most of the benefit cheaply.
@@ -181,8 +184,7 @@ are in how it is optimized and in what the labels are. As far as I know:
 * **Neural network evaluations (NNUE)** replace the hand-written terms completely. They are trained in the same spirit
   (positions with results and scores as labels) but with millions of weights; that is a different engine design.
 
-For kolmato2 the sensible order is: Texel/Adam tuning of the evaluation, then SPSA or manual testing for the search
-constants.
+kolmato2 uses Texel tuning with Adam for the evaluation and SPSA for the search constants (see `../spsa/README.md`).
 
 ## 8. Reusing a positions file
 
@@ -206,7 +208,7 @@ What to keep in mind:
 * A good routine: tune, then generate fresh data with the tuned engine, add it to the old data, tune again.
 
 ## Everything in one go
-`tools/texel/run_texel.sh positions.csv` builds the tuner from the current sources, runs `--selftest`, runs adam (do not pass `--k` for new data) and writes the values into `eval.c`
+`tools/texel/run_texel.sh positions.csv` builds the tuner from the current sources, runs `--selftest`, runs adam (do not pass `--k` for new data) and writes the values into `src/eval.c`
 (the old one is kept as `eval_before_texel.c` in the project directory; the script overwrites that copy on every run). Test the retune with an SPRT of `make pgo` against `make pgo OUT=kolmato2_base EVAL_C=eval_before_texel.c`.
 Data: `python3 tools/texel/datagen.py --kolmato2 ./kolmato2 --games 250000 --workers 120 --depth 9 --sample-rate 1.0 --seed 5555 --out positions.csv`
-(about 55 positions per game at rate 1.0, 21 at the default 0.4; 471 games/min at depth 9 on the server).
+(for reference: about 55 positions per game at rate 1.0 and 21 at the default 0.4; 471 games per minute at depth 9 with 120 workers on a server).
