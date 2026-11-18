@@ -620,17 +620,31 @@ int nega_max(struct bitboards *BITBOARDS, int depth, int alpha, int beta, bool a
         }
     }
 
-    move_t moves[MAX_NUM_MOVES];
-    int move_count;
-
     u64 pinned = 0;
     u8 pinners[64] = {0};
     get_pins(BITBOARDS, &pinned, &pinners[0]);
     u64 attacks = get_enemy_attack_mask(BITBOARDS);
+
+#if STAGED_MOVEGEN
+    // the moves are generated and scored stage by stage while the loop asks for them (movepick.c): a node that is cut off by the table move
+    // or the first capture never generates its quiet moves. move_count is the number of moves that were returned (0 at the end = no legal move)
+    struct move_picker picker;
+    mp_init(&picker, BITBOARDS, table_move, ply, checkers, pinned, pinners, attacks);
+    int move_count = 0;
+#else
+    move_t moves[MAX_NUM_MOVES];
+    int move_count;
     move_count = get_moves(BITBOARDS, &moves[0], checkers, pinned, &pinners[0], attacks);
 
     int scores[MAX_NUM_MOVES];
     score_moves(moves, scores, move_count, BITBOARDS, table_move, ply, attacks);
+#if STABLE_TIE
+    unsigned char order[MAX_NUM_MOVES];
+    for (int k = 0; k < move_count; k++) {
+        order[k] = (unsigned char)k;
+    }
+#endif
+#endif
 
     const int side = BITBOARDS->color == WHITE ? 0 : 1;
     move_t quiets_tried[MAX_TRACKED_QUIETS];
@@ -644,13 +658,30 @@ int nega_max(struct bitboards *BITBOARDS, int depth, int alpha, int beta, bool a
     // the table move is a capture or promotion: the other (quiet) moves are less likely to be better than it
     const bool table_move_tactical = table_move != 0 && is_tactical(BITBOARDS, table_move);
 
+#if STAGED_MOVEGEN
+    for (int i = 0; ; i++) {
+        int picked_bad;
+        move_t move = mp_next(&picker, &picked_bad);
+        if (move == 0) {
+            break;
+        }
+        move_count = i + 1;
+        bool tactical = is_tactical(BITBOARDS, move);
+        // a capture that loses material according to the static exchange evaluation (the table move is never counted as one)
+        bool bad_capture = picked_bad != 0;
+#else
     for (int i = 0; i < move_count; i++) {
 
+#if STABLE_TIE
+        pick_move_stable(moves, scores, order, i, move_count);
+#else
         pick_move(moves, scores, i, move_count);
+#endif
         move_t move = moves[i];
         bool tactical = is_tactical(BITBOARDS, move);
         // a capture that loses material according to the static exchange evaluation (the table move is never counted as one)
         bool bad_capture = tactical && scores[i] >= SCORE_BAD_CAPTURE && scores[i] < SCORE_GOOD_CAPTURE;
+#endif
 
         /*
         skipping moves before they are made. a move is skipped when

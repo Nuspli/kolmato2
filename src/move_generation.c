@@ -338,19 +338,29 @@ FORCE_INLINE int add_targets(move_t *out, int count, int from, u64 targets) {
     return count;
 }
 
-FORCE_INLINE int gen_moves(const bool white, const bool captures_only, struct bitboards *BB, move_t *out, u64 checkers, u64 pinned, u8 *pinners, u64 attacked) {
+// what gen_moves produces. GEN_ALL: every legal move. GEN_CAPTURES: captures and en passant (what the quiescence search wants, no promotion by a push).
+// GEN_TACTICAL and GEN_QUIET split GEN_ALL in two parts for the staged move picker (movepick.c): TACTICAL is every capture, en passant and every
+// promotion (also the ones by a push), QUIET is everything else (castling included). both together are exactly GEN_ALL.
+// from_mask limits the moves to the pieces on these squares (all ones: no limit), it is used to test a single move for legality
+#define GEN_ALL      0
+#define GEN_CAPTURES 1
+#define GEN_TACTICAL 2
+#define GEN_QUIET    3
+
+FORCE_INLINE int gen_moves(const bool white, const int mode, const u64 from_mask, struct bitboards *BB, move_t *out, u64 checkers, u64 pinned, u8 *pinners, u64 attacked) {
     const int own = white ? 0 : 6;
     const int enemy = white ? 6 : 0;
     const int d = white ? 1 : -1;
     const u64 my_pieces = BB->bits[white ? white_pieces : black_pieces];
     const u64 enemy_pieces = BB->bits[white ? black_pieces : white_pieces];
-    const u64 my_pawns = BB->bits[white_pawns + own];
+    const u64 my_pawns = BB->bits[white_pawns + own] & from_mask;
     const u64 occupied = BB->bits[all_pieces];
     const u64 ep_bit = BB->en_passant_square < 0 ? 0 : bit(BB->en_passant_square);
     const u64 ep_captured_bit = BB->en_passant_square < 0 ? 0 : bit(BB->en_passant_square - 8 * d); // the pawn that an en passant capture removes
     const u64 double_step_rank = white ? rank[2] : rank[5]; // where the pawns are after their first push
     const u64 king = BB->bits[white_king + own];
     const bool in_check = checkers != 0;
+    const bool pushes = mode != GEN_CAPTURES; // pawn pushes (quiet ones and promotions) are generated
 
     possible_calls++;
 
@@ -388,7 +398,7 @@ FORCE_INLINE int gen_moves(const bool white, const bool captures_only, struct bi
 
         checkers |= squares_between[lsb(checkers)][king_index];
 
-        if (!captures_only) {
+        if (pushes) {
             step1 = pawn_push(white, my_pawns & ~pinned) & ~occupied;
             step2 = pawn_push(white, step1 & double_step_rank) & ~occupied & checkers;
             step1 &= checkers;
@@ -397,7 +407,7 @@ FORCE_INLINE int gen_moves(const bool white, const bool captures_only, struct bi
         capture2 = pawn_capture2(white, my_pawns & ~pinned) & (enemy_pieces | ep_bit) & checkers;
     } else {
         // no checks, all moves are legal (except pinned pieces or castling through check)
-        if (!captures_only) {
+        if (pushes) {
             step1 = pawn_push(white, my_pawns & ~pinned) & ~occupied;
             step2 = pawn_push(white, step1 & double_step_rank) & ~occupied;
         }
@@ -411,7 +421,7 @@ FORCE_INLINE int gen_moves(const bool white, const bool captures_only, struct bi
         checkers = 0xFFFFFFFFFFFFFFFFULL;
 
         // some pinned pieces still have moves so they need to be generated here
-        if (!captures_only) {
+        if (pushes) {
             pinned_step1 = pawn_push(white, my_pawns & pinned) & ~occupied;
             pinned_step2 = pawn_push(white, pinned_step1 & double_step_rank) & ~occupied;
         }
@@ -421,6 +431,25 @@ FORCE_INLINE int gen_moves(const bool white, const bool captures_only, struct bi
         pinned_bishops = (BB->bits[white_bishops + own] | BB->bits[white_queens + own]) & pinned;
         pinned_rooks = (BB->bits[white_rooks + own] | BB->bits[white_queens + own]) & pinned;
     }
+
+    // keep only the part of the moves that the mode asks for. a pinned pawn can not push to the last rank (the pinning piece or the king is in the way)
+    if (mode == GEN_QUIET) {
+        step1 &= ~pawn_promotion_mask;
+        capture1 = 0;
+        capture2 = 0;
+        pinned_capture1 = 0;
+        pinned_capture2 = 0;
+    } else if (mode == GEN_TACTICAL) {
+        step1 &= pawn_promotion_mask;
+        step2 = 0;
+        pinned_step1 = 0;
+        pinned_step2 = 0;
+    }
+    knights &= from_mask;
+    bishops &= from_mask;
+    rooks &= from_mask;
+    pinned_bishops &= from_mask;
+    pinned_rooks &= from_mask;
 
     for (; step1; step1 &= step1 - 1) {
         u8 b = lsb(step1);
@@ -476,12 +505,15 @@ FORCE_INLINE int gen_moves(const bool white, const bool captures_only, struct bi
     }
 
     // the squares the pieces may go to: anything but own pieces, or only enemy pieces
-    const u64 target = captures_only ? enemy_pieces : ~my_pieces;
+    const u64 target = mode == GEN_ALL ? ~my_pieces : (mode == GEN_QUIET ? ~occupied : enemy_pieces);
+    const bool king_moves = (king & from_mask) != 0;
 
-    count = add_targets(out, count, king_index, king_attacks[king_index] & target & ~attacked);
+    if (king_moves) {
+        count = add_targets(out, count, king_index, king_attacks[king_index] & target & ~attacked);
+    }
 
     // castling (the king and the rook are on the squares that the castling rights say, the files are the same for both colors)
-    if (!captures_only && !in_check) {
+    if (king_moves && (mode == GEN_ALL || mode == GEN_QUIET) && !in_check) {
         const bool castle_king = white ? BB->white_castle_king_side : BB->black_castle_king_side;
         const bool castle_queen = white ? BB->white_castle_queen_side : BB->black_castle_queen_side;
         if (castle_king && (((occupied | attacked) & (bit(king_index - 1) | bit(king_index - 2))) == 0)) {
@@ -522,11 +554,27 @@ FORCE_INLINE int gen_moves(const bool white, const bool captures_only, struct bi
 }
 
 int get_moves(struct bitboards *BB, move_t *MOVES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked) {
-    return BB->color == WHITE ? gen_moves(true, false, BB, MOVES, checkers, pinned, pinners, attacked)
-                              : gen_moves(false, false, BB, MOVES, checkers, pinned, pinners, attacked);
+    return BB->color == WHITE ? gen_moves(true, GEN_ALL, ~0ULL, BB, MOVES, checkers, pinned, pinners, attacked)
+                              : gen_moves(false, GEN_ALL, ~0ULL, BB, MOVES, checkers, pinned, pinners, attacked);
 }
 
 int get_captures(struct bitboards *BB, move_t *CAPTURES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked) {
-    return BB->color == WHITE ? gen_moves(true, true, BB, CAPTURES, checkers, pinned, pinners, attacked)
-                              : gen_moves(false, true, BB, CAPTURES, checkers, pinned, pinners, attacked);
+    return BB->color == WHITE ? gen_moves(true, GEN_CAPTURES, ~0ULL, BB, CAPTURES, checkers, pinned, pinners, attacked)
+                              : gen_moves(false, GEN_CAPTURES, ~0ULL, BB, CAPTURES, checkers, pinned, pinners, attacked);
+}
+
+int get_tactical(struct bitboards *BB, move_t *MOVES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked) {
+    return BB->color == WHITE ? gen_moves(true, GEN_TACTICAL, ~0ULL, BB, MOVES, checkers, pinned, pinners, attacked)
+                              : gen_moves(false, GEN_TACTICAL, ~0ULL, BB, MOVES, checkers, pinned, pinners, attacked);
+}
+
+int get_quiets(struct bitboards *BB, move_t *MOVES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked) {
+    return BB->color == WHITE ? gen_moves(true, GEN_QUIET, ~0ULL, BB, MOVES, checkers, pinned, pinners, attacked)
+                              : gen_moves(false, GEN_QUIET, ~0ULL, BB, MOVES, checkers, pinned, pinners, attacked);
+}
+
+int get_moves_from(struct bitboards *BB, move_t *MOVES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked, int from) {
+    const u64 from_mask = 1ULL << from;
+    return BB->color == WHITE ? gen_moves(true, GEN_ALL, from_mask, BB, MOVES, checkers, pinned, pinners, attacked)
+                              : gen_moves(false, GEN_ALL, from_mask, BB, MOVES, checkers, pinned, pinners, attacked);
 }

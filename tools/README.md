@@ -24,6 +24,7 @@ An optional argument is a reference binary: it is compared with the new build on
 | `uci_test.py <bin>` | the UCI mode with python-chess as the client (handshake, limits, clocks, mate scores, stop, promotions) |
 | `ponder_test.py <bin>`, `ponder_info_test.py <bin> <depth> <bin>` | go ponder / ponderhit / stop, and that depth, score and pv are printed after a ponderhit |
 | `movetest.c` | harness that reads FENs and prints the engine's legal moves, captures, attackers and SEE values. Built with all sources except `main.c`: `eval "$(make -s print-env)"; gcc -Ofast -I$SRCDIR tools/movetest.c $SRC_NOMAIN -o movetest -lm` |
+| `staged_test.c` | walks a game tree and checks the staged move generators (`get_tactical`, `get_quiets`, `get_moves_from`) against `get_moves` at every node, including random garbage moves. Built like `movetest.c`; argument: depth (default 3) |
 | `movegen_diff.py`, `ep_diff.py`, `see_diff.py <movetest> [n]` | compare that harness with python-chess (random playouts, en passant, SEE). Build the harness with `-DVERIFY_EP=1` to let `ep_diff.py` also check `ep_capture_is_legal` against the complete test |
 | `eval_symmetry.py <movetest>` | a position and its color-flipped mirror must get the same static evaluation |
 | `check_flags.py <tune bin> <flags bin> "<-D flags>"` | a `-DNAME=value` build must give the same node counts as the `-DTUNE_SEARCH` build with the same values as UCI options (catches silently ignored flags) |

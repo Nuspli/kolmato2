@@ -95,7 +95,7 @@ and a mop-up term for won endgames. The weights are in `src/eval.c`; they were t
 | `uci.c` | UCI loop, options, `go` handling, time allocation, pondering |
 | `search.c`, `search.h`, `search_shared.h` | the search: `nega_max`, quiescence search, aspiration windows, iterative deepening |
 | `timeman.c`, `threads.c` | time limits and the soft limit scaling, Lazy SMP helper threads |
-| `movepick.c`, `history.c` | move ordering, killers, history, correction history |
+| `movepick.c`, `history.c` | the staged move picker (table move, captures, killers, bad captures, quiet moves), killers, history, correction history |
 | `evaluate.c`, `eval.c`, `eval.h`, `see.c` | evaluation, its weights, static exchange evaluation |
 | `move.c`, `move_generation.c`, `magic.c`, `bitboards.c`, `check.c`, `fen.c` | board, move generation (fully legal), attack tables, check detection |
 | `tables.c`, `counters.c`, `perft.c`, `book.c`, `parser.c`, `print.c`, `random.c` | transposition tables, counters, perft, opening book, helpers |
@@ -131,6 +131,7 @@ and self-play gains are usually larger than the gain against other engines.
 | new hash keys (the old ones, made with a weak xorshift generator, gave different positions the same 64 bit hash) + using the table score for the pruning decisions | +4.1 ± 3.3 (24.3k); the new keys alone -0.9 ± 5.6 (kept because they are correct) |
 | correction history, pawn structure table only | +5.2 ± 4.0 (15.8k) |
 | latest SPSA run: 34 parameters (search, time management, correction history), 52k game pairs, against the previous defaults | +21.8 ± 9.7 (2566) |
+| staged move generation (a move picker returns the table move, captures, killers, bad captures and quiet moves one stage at a time, so most nodes never generate or score their quiet moves; equal scores are ordered by generation order) | +16.4 ± 8.5 (3848); about +8 % nodes per second on the same tree |
 
 Speed work that does not change the search (the pruning decision is taken before `do_move` using an exact `gives_check`, the static evaluation is
 stored in the table): about +6.7 % nodes per second, verified by identical node counts.
@@ -161,6 +162,7 @@ Everything here was implemented behind a compile flag, tested, and removed from 
 | correction history tables for the non-pawn pieces (with the pawn table) | -8.8 ± 7.1 (4948); without the quiescence correction -15.1 ± 9.3 (3252) |
 | a bundle of the history and reduction ideas above | -14.3 |
 | five groups of extra evaluation terms (variants of the passed pawn, king, mobility and bishop pair terms, and one more) | rejected by SPRT, numbers not kept |
+| ultra aggressive pruning in three levels (deeper and tighter reverse futility, futility, late move pruning and bad capture pruning; razoring, history pruning, ProbCut, quiescence depth cap; stronger null move and LMR): 2 to 9 plies deeper in the same time | -2.8 ± 4.9 (11.7k), -70.4 ± 19.2 (826), -215.1 ± 32.2 (396) |
 | time management with scale limits 150 / 70 | +3.9 ± 3.1 (26k): too weak, the version with other limits (+23 ± 10, 2610 games, not reliable, see above) was kept |
 
 One idea was implemented but never tested: null move only in expected cut nodes.

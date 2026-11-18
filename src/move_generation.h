@@ -45,6 +45,14 @@ int get_moves(struct bitboards *BB, move_t *MOVES, u64 checkers, u64 pinned, u8 
 
 int get_captures(struct bitboards *BB, move_t *CAPTURES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked);
 
+// the two halves of get_moves for the staged move picker: every capture, en passant and promotion / every other move. disjoint, together all legal moves
+int get_tactical(struct bitboards *BB, move_t *MOVES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked);
+
+int get_quiets(struct bitboards *BB, move_t *MOVES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked);
+
+// the legal moves of the piece on one square (to test if a single move, e.g. from the table, is legal here)
+int get_moves_from(struct bitboards *BB, move_t *MOVES, u64 checkers, u64 pinned, u8 *pinners, u64 attacked, int from);
+
 
 
 #endif

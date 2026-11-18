@@ -4,7 +4,7 @@
 #   3. perft   4. check_flags (tune build == -D flags build)   5. ponder protocol tests   6. movegen / SEE / eval symmetry diffs
 # the optional reference binary is compared position by position (same nodes, same moves) with tools/bench.py
 # needs python-chess (pip install chess) and make. takes about 3-4 minutes
-BENCH_NODES=2708k
+BENCH_NODES=2621k
 cd "$(dirname "$0")/.."
 eval "$(make -s print-env)"   # SRCDIR SRC SRC_NOMAIN CPUFLAGS (the Makefile is the one place that lists the sources)
 fail=0
@@ -56,5 +56,15 @@ python3 tools/movegen_diff.py /tmp/regress_movetest 100 | tail -1 | grep -q "mov
 # only the attacker sets are a valid check
 python3 tools/see_diff.py /tmp/regress_movetest 100 | tail -1 | grep -q "attacker-set mismatches: 0" || bad "see_diff attacker sets"
 python3 tools/eval_symmetry.py /tmp/regress_movetest 100 | tail -1 | grep -q "asymmetric: 0" || bad "eval_symmetry"
+
+step "staged move generation (tactical + quiet = all legal moves, single piece generation exact, garbage moves rejected; picker vs old pipeline)"
+gcc -O2 -pthread $CPUFLAGS -I$SRCDIR tools/staged_test.c $SRC_NOMAIN -o /tmp/regress_staged -lm || bad "staged_test build"
+/tmp/regress_staged 3 | tail -1 | grep -q "staged generation OK" || bad "staged_test: the staged generators disagree with get_moves"
+# with MP_SNAPSHOT the picker must search exactly the tree of the old pipeline with the deterministic tie-break (same nodes, moves and scores)
+gcc -pthread -Ofast $CPUFLAGS -DSTAGED_MOVEGEN=0 -DSTABLE_TIE=1 $SRC -o /tmp/regress_mp_ref -lm || bad "staged reference build"
+gcc -pthread -Ofast $CPUFLAGS -DSTAGED_MOVEGEN=1 -DMP_SNAPSHOT=1 $SRC -o /tmp/regress_mp_snap -lm || bad "staged snapshot build"
+b=$(python3 tools/bench.py 12 /tmp/regress_mp_ref /tmp/regress_mp_snap); echo "$b" | tail -2
+echo "$b" | grep -q "same best move in all builds: 16/16" || bad "staged picker: best moves differ from the old pipeline"
+echo "$b" | tail -2 | head -1 | awk -F'|' '{split($2,a," "); split($3,c," "); if (a[2]!=c[2]) exit 1}' || bad "staged picker: node count differs from the old pipeline"
 
 [ $fail = 0 ] && echo "ALL OK" || { echo "REGRESSION FAILED"; exit 1; }
